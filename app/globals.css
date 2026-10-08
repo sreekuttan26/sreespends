@@ -1,26 +1,114 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --bg: #f5f6fb;
+  --fg: #0f1222;
+  --surface: #ffffff;
+  --surface-2: #f0f1f7;
+  --border: #e3e5ef;
+  --muted: #6b7088;
+  --accent: #5b4cf0;
+  --accent-strong: #3f2fd6;
+  --success: #12a150;
+  --danger: #e5484d;
+  --warn: #d97706;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0b0c14;
+    --fg: #eceef8;
+    --surface: #14161f;
+    --surface-2: #1d2030;
+    --border: #2a2e42;
+    --muted: #9095ad;
+    --accent: #7c6dff;
+    --accent-strong: #4b3bdb;
+    --success: #3ccf7c;
+    --danger: #ff6b70;
+    --warn: #f5a524;
   }
 }
 
+@theme inline {
+  --color-background: var(--bg);
+  --color-foreground: var(--fg);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: light dark;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* In the components layer so Tailwind utilities (e.g. pl-12) can override these. */
+@layer components {
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 28px;
+  }
+
+  .hero {
+    background:
+      radial-gradient(120% 120% at 100% 0%, rgba(255, 255, 255, 0.22) 0%, transparent 45%),
+      linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .field {
+    height: 3rem;
+    border-radius: 0.875rem;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    padding-inline: 1rem;
+    font-size: 1rem; /* 16px keeps iOS from zooming on focus */
+    outline: none;
+    transition: border-color 150ms;
+  }
+  textarea.field {
+    height: auto;
+  }
+  /* iOS centers date values by default; keep them next to the icon. */
+  .field::-webkit-date-and-time-value {
+    text-align: left;
+  }
+  .field:focus {
+    border-color: var(--accent);
+  }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+@keyframes sheet-in {
+  from { transform: translateY(24px); opacity: 0; }
+}
+@keyframes scan {
+  0%, 100% { top: 12%; }
+  50% { top: 88%; }
+}
+
+.fade-in { animation: fade-in 180ms ease-out; }
+.sheet-in { animation: sheet-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.scan-line { animation: scan 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-in, .sheet-in, .scan-line { animation: none; }
 }
