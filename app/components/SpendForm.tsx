@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { ArrowRight, CalendarDays, Loader2, Lock, MessageSquareText, Store } from "lucide-react";
+import { ArrowRight, CalendarDays, Check, Loader2, Lock, MessageSquareText, Store } from "lucide-react";
 import CategoryPicker from "./CategoryPicker";
 import PayeeInput, { type PayeeValue } from "./PayeeInput";
 import Sheet from "./Sheet";
@@ -10,7 +10,9 @@ import {
   formatINR,
   saveSpend,
   todayKey,
+  updateSpend,
   type Category,
+  type Spend,
 } from "@/app/lib/spends";
 import type { UpiPayload } from "@/app/lib/upi";
 
@@ -24,25 +26,39 @@ export type SavedSpend = {
 
 type Props = {
   upi: UpiPayload | null;
+  /** When set, the form edits this spend instead of adding a new one */
+  editing?: Spend | null;
   categories: Category[];
   onClose: () => void;
   onSaved: (spend: SavedSpend) => void;
+  onUpdated?: (spend: Spend) => void;
 };
 
-export default function SpendForm({ upi, categories, onClose, onSaved }: Props) {
-  const amountLocked = Boolean(upi?.am);
-  const [amount, setAmount] = useState(upi?.am ? upi.am.toFixed(2) : "");
-  const [dateKey, setDateKey] = useState(() => todayKey());
+export default function SpendForm({ upi, editing, categories, onClose, onSaved, onUpdated }: Props) {
+  const amountLocked = !editing && Boolean(upi?.am);
+  const [amount, setAmount] = useState(() =>
+    editing ? String(editing.amount) : upi?.am ? upi.am.toFixed(2) : "",
+  );
+  const [dateKey, setDateKey] = useState(() => todayKey(editing?.date));
   const [maxDate] = useState(() => todayKey());
-  const [category, setCategory] = useState<Category | null>(null);
-  const [comment, setComment] = useState(upi?.tn ?? "");
+  const [category, setCategory] = useState<Category | null>(() =>
+    editing
+      ? { id: editing.categoryId, name: editing.categoryName, emoji: editing.categoryEmoji }
+      : null,
+  );
+  const [comment, setComment] = useState(editing?.comment ?? upi?.tn ?? "");
   const [payee, setPayee] = useState<PayeeValue>({ entered: false, payment: null, problem: null });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const amountValue = Number(amount);
   const amountValid = Number.isFinite(amountValue) && amountValue > 0;
-  const willPay = Boolean(upi) || payee.entered;
+  const willPay = !editing && (Boolean(upi) || payee.entered);
+  // A spend may use a category that was since removed; keep it selectable while editing.
+  const pickerCategories =
+    category && !categories.some((c) => c.id === category.id) ? [...categories, category] : categories;
+  const payeeName = editing ? editing.payeeName : upi?.pn;
+  const payeeVpa = editing ? editing.payeeVpa : upi?.pa;
 
   async function submit(e?: FormEvent) {
     e?.preventDefault();
@@ -50,12 +66,17 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
     if (willPay && amountValue > 500000) return setError("UPI payments are capped at ₹5,00,000.");
     if (!category) return setError("Pick a category for this spend.");
     if (!dateKey) return setError("Pick a date.");
-    if (!upi && payee.problem) return setError(payee.problem);
+    if (!editing && !upi && payee.problem) return setError(payee.problem);
 
     setSaving(true);
     setError(null);
     try {
       const rounded = Math.round(amountValue * 100) / 100;
+      if (editing) {
+        await updateSpend(editing, { amount: rounded, category, dateKey, comment });
+        onUpdated?.({ ...editing, amount: rounded, comment: comment.trim() });
+        return;
+      }
       const payment = upi ?? payee.payment;
       const id = await saveSpend({ amount: rounded, category, dateKey, comment, upi: payment });
       onSaved({ id, amount: rounded, comment, category, upi: payment });
@@ -67,8 +88,14 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
 
   return (
     <Sheet
-      title={upi ? "Pay & track" : "Add a spend"}
-      subtitle={upi ? "Details are saved before you pay" : "Log a cash spend, or pay a UPI ID"}
+      title={editing ? "Edit spend" : upi ? "Pay & track" : "Add a spend"}
+      subtitle={
+        editing
+          ? "Changes update your history only"
+          : upi
+            ? "Details are saved before you pay"
+            : "Log a cash spend, or pay a UPI ID"
+      }
       onClose={saving ? undefined : onClose}
       footer={
         <>
@@ -87,6 +114,10 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
               <>
                 <Loader2 className="h-5 w-5 animate-spin" /> Saving…
               </>
+            ) : editing ? (
+              <>
+                <Check className="h-5 w-5" /> Save changes
+              </>
             ) : (
               <>
                 {willPay ? "Proceed to pay" : "Save spend"}
@@ -99,14 +130,14 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
       }
     >
       <form id="spend-form" onSubmit={submit} className="space-y-6 pt-2">
-        {upi && (
+        {payeeVpa && (
           <div className="flex items-center gap-3 rounded-2xl bg-[var(--surface-2)] p-3.5">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--accent)]/15 text-[var(--accent)]">
               <Store className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <p className="truncate font-semibold">{upi.pn || "UPI payee"}</p>
-              <p className="truncate text-sm text-[var(--muted)]">{upi.pa}</p>
+              <p className="truncate font-semibold">{payeeName || "UPI payee"}</p>
+              <p className="truncate text-sm text-[var(--muted)]">{payeeVpa}</p>
             </div>
           </div>
         )}
@@ -125,7 +156,7 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
               id="amount"
               inputMode="decimal"
               autoComplete="off"
-              autoFocus={!amountLocked}
+              autoFocus={!amountLocked && !editing}
               readOnly={amountLocked}
               value={amount}
               onChange={(e) => {
@@ -142,7 +173,7 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
           )}
         </div>
 
-        {!upi && <PayeeInput onChange={setPayee} />}
+        {!upi && !editing && <PayeeInput onChange={setPayee} />}
 
         <div>
           <label htmlFor="date" className="label">
@@ -164,7 +195,7 @@ export default function SpendForm({ upi, categories, onClose, onSaved }: Props) 
         <div>
           <span className="label">Category</span>
           <CategoryPicker
-            categories={categories}
+            categories={pickerCategories}
             selectedId={category?.id ?? null}
             onSelect={(c) => {
               setCategory(c);

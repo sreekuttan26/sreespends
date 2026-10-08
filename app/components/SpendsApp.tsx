@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Plus, QrCode, Receipt, Trash2, Wallet } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Pencil, Plus, QrCode, Receipt, Trash2, Wallet } from "lucide-react";
 import QrScanner from "./QrScanner";
 import Sheet from "./Sheet";
 import SpendForm, { type SavedSpend } from "./SpendForm";
@@ -24,7 +24,8 @@ type Flow =
   | { step: "idle" }
   | { step: "scan"; hint: string | null }
   | { step: "form"; upi: UpiPayload | null }
-  | { step: "pay"; spend: SavedSpend & { upi: UpiPayload } };
+  | { step: "pay"; spend: SavedSpend & { upi: UpiPayload } }
+  | { step: "edit"; spend: Spend };
 
 const HISTORY_DAYS = 30;
 
@@ -263,21 +264,34 @@ export default function SpendsApp() {
                     <span>{g.label}</span>
                     <span className="tabular-nums">{formatINR(g.total)}</span>
                   </div>
-                  <ul className="divide-y divide-[var(--border)]">
+                  <ul className="select-none divide-y divide-[var(--border)] [-webkit-touch-callout:none]">
                     {g.items.map((s) => (
-                      <li key={s.id} className="flex items-center gap-3 py-3">
-                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--surface-2)] text-xl" aria-hidden>
-                          {s.categoryEmoji}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate font-medium">{s.payeeName || s.comment || s.categoryName}</p>
-                          <p className="truncate text-sm text-[var(--muted)]">
-                            {s.categoryName}
-                            {s.payeeName && s.comment ? ` · ${s.comment}` : ""}
-                            {s.source !== "manual" ? " · UPI" : ""}
-                          </p>
-                        </div>
-                        <span className="shrink-0 font-semibold tabular-nums">−{formatINR(s.amount)}</span>
+                      <li key={s.id} className="flex items-center gap-1">
+                        <button
+                          onClick={() => setFlow({ step: "edit", spend: s })}
+                          aria-label={`Edit ${formatINR(s.amount)} spend`}
+                          className="-ml-2 flex min-w-0 flex-1 items-center gap-3 rounded-2xl px-2 py-3 text-left transition hover:bg-[var(--surface-2)] active:scale-[0.99]"
+                        >
+                          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[var(--surface-2)] text-xl" aria-hidden>
+                            {s.categoryEmoji}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{s.payeeName || s.comment || s.categoryName}</span>
+                            <span className="block truncate text-sm text-[var(--muted)]">
+                              {s.categoryName}
+                              {s.payeeName && s.comment ? ` · ${s.comment}` : ""}
+                              {s.source !== "manual" ? " · UPI" : ""}
+                            </span>
+                          </span>
+                          <span className="shrink-0 font-semibold tabular-nums">−{formatINR(s.amount)}</span>
+                        </button>
+                        <button
+                          onClick={() => setFlow({ step: "edit", spend: s })}
+                          aria-label={`Edit ${formatINR(s.amount)} spend`}
+                          className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-[var(--muted)] transition hover:bg-[var(--accent)]/10 hover:text-[var(--accent)]"
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => {
                             setDeleteError(null);
@@ -326,6 +340,19 @@ export default function SpendsApp() {
           categories={categories}
           onClose={() => setFlow({ step: "idle" })}
           onSaved={handleSaved}
+        />
+      )}
+      {flow.step === "edit" && (
+        <SpendForm
+          upi={null}
+          editing={flow.spend}
+          categories={categories}
+          onClose={() => setFlow({ step: "idle" })}
+          onSaved={handleSaved}
+          onUpdated={(spend) => {
+            setFlow({ step: "idle" });
+            setToast(`Updated ${formatINR(spend.amount)} spend`);
+          }}
         />
       )}
       {flow.step === "pay" && <UpiAppSheet spend={flow.spend} onDone={() => setFlow({ step: "idle" })} />}

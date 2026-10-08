@@ -3,6 +3,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  updateDoc,
   onSnapshot,
   orderBy,
   query,
@@ -59,18 +60,14 @@ export type NewSpend = {
   upi: UpiPayload | null;
 };
 
+function dayWithTime(dateKey: string, time: Date) {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(y, m - 1, d, time.getHours(), time.getMinutes(), time.getSeconds());
+}
+
 export async function saveSpend(spend: NewSpend) {
   // Combine the chosen day with the current time so same-day spends keep their order.
-  const now = new Date();
-  const [y, m, d] = spend.dateKey.split("-").map(Number);
-  const date = new Date(
-    y,
-    m - 1,
-    d,
-    now.getHours(),
-    now.getMinutes(),
-    now.getSeconds(),
-  );
+  const date = dayWithTime(spend.dateKey, new Date());
 
   const ref = await addDoc(collection(db, SPENDS_COLLECTION), {
     amount: spend.amount,
@@ -183,4 +180,27 @@ export function describeFirebaseError(error: unknown) {
 
 export function deleteSpend(id: string) {
   return deleteDoc(doc(db, SPENDS_COLLECTION, id));
+}
+
+export type SpendChanges = {
+  amount: number;
+  category: Category;
+  dateKey: string;
+  comment: string;
+};
+
+/** Updates the editable fields of a spend. Payee details stay as they were paid. */
+export function updateSpend(original: Spend, changes: SpendChanges) {
+  // Keep the original time of day so the spend's position within its day doesn't jump.
+  const date = dayWithTime(changes.dateKey, original.date);
+  return updateDoc(doc(db, SPENDS_COLLECTION, original.id), {
+    amount: changes.amount,
+    categoryId: changes.category.id,
+    categoryName: changes.category.name,
+    categoryEmoji: changes.category.emoji,
+    comment: changes.comment.trim(),
+    date: Timestamp.fromDate(date),
+    dateKey: changes.dateKey,
+    updatedAt: serverTimestamp(),
+  });
 }
