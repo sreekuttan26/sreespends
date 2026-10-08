@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Pencil, Plus, QrCode, Receipt, Trash2, Wallet } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Loader2, Pencil, Plus, QrCode, Receipt, Trash2, Wallet, X } from "lucide-react";
 import QrScanner from "./QrScanner";
 import Sheet from "./Sheet";
 import SpendForm, { type SavedSpend } from "./SpendForm";
@@ -36,6 +36,8 @@ export default function SpendsApp() {
   const [now, setNow] = useState<Date | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null);
+  const recentRef = useRef<HTMLElement>(null);
   const [pendingDelete, setPendingDelete] = useState<Spend | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -94,10 +96,11 @@ export default function SpendsApp() {
     const today = todayKey(now);
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
     const month = spends.filter((s) => s.date >= monthStart);
-    const byCategory = new Map<string, { name: string; emoji: string; total: number }>();
+    const byCategory = new Map<string, { name: string; emoji: string; total: number; count: number }>();
     for (const s of month) {
-      const entry = byCategory.get(s.categoryName) ?? { name: s.categoryName, emoji: s.categoryEmoji, total: 0 };
+      const entry = byCategory.get(s.categoryName) ?? { name: s.categoryName, emoji: s.categoryEmoji, total: 0, count: 0 };
       entry.total += s.amount;
+      entry.count += 1;
       byCategory.set(s.categoryName, entry);
     }
     return {
@@ -108,12 +111,31 @@ export default function SpendsApp() {
     };
   }, [now, spends]);
 
+  // Falls back to "all" once the category has no spends left this month (e.g. after deleting them).
+  const activeCategory = stats?.categories.find((c) => c.name === categoryFilter) ?? null;
+
+  const visibleSpends = useMemo(() => {
+    if (!spends || !now || !activeCategory) return spends;
+    // Match the breakdown: this month's spends in the chosen category.
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    return spends.filter((s) => s.categoryName === activeCategory.name && s.date >= monthStart);
+  }, [spends, now, activeCategory]);
+
+  function selectCategory(name: string) {
+    const next = categoryFilter === name ? null : name;
+    setCategoryFilter(next);
+    // On single-column layouts the list sits below the breakdown, so bring it into view.
+    if (next && !window.matchMedia("(min-width: 1024px)").matches) {
+      requestAnimationFrame(() => recentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    }
+  }
+
   const grouped = useMemo(() => {
-    if (!spends || !now) return [];
+    if (!visibleSpends || !now) return [];
     const today = todayKey(now);
     const yesterday = todayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
     const groups = new Map<string, { label: string; total: number; items: Spend[] }>();
-    for (const s of spends) {
+    for (const s of visibleSpends) {
       const key = todayKey(s.date);
       if (!groups.has(key)) {
         const label =
@@ -129,7 +151,7 @@ export default function SpendsApp() {
       g.total += s.amount;
     }
     return [...groups.values()];
-  }, [spends, now]);
+  }, [visibleSpends, now]);
 
   function handleScan(text: string) {
     const upi = parseUpiQr(text);
@@ -212,40 +234,80 @@ export default function SpendsApp() {
           {/* Category breakdown */}
           <section className="card p-5 sm:p-6">
             <h2 className="font-semibold">Where it went</h2>
-            <p className="text-sm text-[var(--muted)]">By category, this month</p>
+            <p className="text-sm text-[var(--muted)]">By category, this month · tap one to see its spends</p>
             {!stats ? (
               <SkeletonRows />
             ) : stats.categories.length === 0 ? (
               <p className="mt-6 text-sm text-[var(--muted)]">No spends this month yet.</p>
             ) : (
-              <ul className="mt-5 space-y-4">
-                {stats.categories.slice(0, 6).map((c) => (
-                  <li key={c.name}>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="flex items-center gap-2 font-medium">
-                        <span aria-hidden>{c.emoji}</span> {c.name}
-                      </span>
-                      <span className="tabular-nums text-[var(--muted)]">{formatINR(c.total)}</span>
-                    </div>
-                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
-                      <div
-                        className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-700"
-                        style={{ width: `${Math.max(4, (c.total / topTotal) * 100)}%` }}
-                      />
-                    </div>
-                  </li>
-                ))}
+              <ul className="mt-4 select-none space-y-1 [-webkit-touch-callout:none]">
+                {stats.categories.map((c) => {
+                  const active = activeCategory?.name === c.name;
+                  const dimmed = activeCategory && !active;
+                  return (
+                    <li key={c.name}>
+                      <button
+                        onClick={() => selectCategory(c.name)}
+                        aria-pressed={active}
+                        className={`-mx-3 block w-[calc(100%+1.5rem)] rounded-2xl px-3 py-2.5 text-left transition ${
+                          active ? "bg-[var(--accent)]/10" : "hover:bg-[var(--surface-2)]"
+                        } ${dimmed ? "opacity-55" : ""}`}
+                      >
+                        <span className="flex items-center justify-between gap-3 text-sm">
+                          <span className="flex min-w-0 items-center gap-2 font-medium">
+                            <span aria-hidden>{c.emoji}</span>
+                            <span className="truncate">{c.name}</span>
+                            <span className="shrink-0 text-xs font-normal text-[var(--muted)]">· {c.count}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-1 tabular-nums text-[var(--muted)]">
+                            {formatINR(c.total)}
+                            <ChevronRight
+                              className={`h-4 w-4 transition ${active ? "rotate-90 text-[var(--accent)]" : ""}`}
+                            />
+                          </span>
+                        </span>
+                        <span className="mt-1.5 block h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
+                          <span
+                            className="block h-full rounded-full bg-[var(--accent)] transition-[width] duration-700"
+                            style={{ width: `${Math.max(4, (c.total / topTotal) * 100)}%` }}
+                          />
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </section>
         </div>
 
         {/* Recent spends */}
-        <section className="card p-5 sm:p-6">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-semibold">Recent spends</h2>
-            <span className="text-xs text-[var(--muted)]">Last {HISTORY_DAYS} days</span>
-          </div>
+        <section ref={recentRef} className="card scroll-mt-4 p-5 sm:p-6">
+          {activeCategory ? (
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="flex items-center gap-2 font-semibold">
+                  <span aria-hidden>{activeCategory.emoji}</span>
+                  <span className="truncate">{activeCategory.name}</span>
+                </h2>
+                <p className="text-xs text-[var(--muted)]">
+                  {monthLabel} · {activeCategory.count} {activeCategory.count === 1 ? "spend" : "spends"} ·{" "}
+                  {formatINR(activeCategory.total)}
+                </p>
+              </div>
+              <button
+                onClick={() => setCategoryFilter(null)}
+                className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold transition hover:bg-[var(--border)]"
+              >
+                <X className="h-3.5 w-3.5" /> Show all
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-baseline justify-between">
+              <h2 className="font-semibold">Recent spends</h2>
+              <span className="text-xs text-[var(--muted)]">Last {HISTORY_DAYS} days</span>
+            </div>
+          )}
           {!spends && !loadError ? (
             <SkeletonRows />
           ) : grouped.length === 0 ? (
